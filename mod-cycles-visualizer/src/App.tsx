@@ -197,7 +197,6 @@ export default function App() {
   )
 }
 
-
 function Grid({
   base,
   cells,
@@ -207,13 +206,21 @@ function Grid({
   cells: Record<string, { label: string; color: string }[]>;
   showLabels: boolean;
 }) {
-  // 容器尺寸监听
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null); // ← 新增：内层正方形网格引用
   const [box, setBox] = useState({ w: 0, h: 0 });
+
+  // 悬浮提示状态
+  const [tip, setTip] = useState<{ show: boolean; x: number; y: number; text: string }>({
+    show: false,
+    x: 0,
+    y: 0,
+    text: "",
+  });
 
   useEffect(() => {
     if (!wrapRef.current) return;
-    const ro = new ResizeObserver((entries) => {
+    const ro = new (window as any).ResizeObserver((entries: any[]) => {
       const cr = entries[0].contentRect;
       setBox({ w: cr.width, h: cr.height });
     });
@@ -221,70 +228,151 @@ function Grid({
     return () => ro.disconnect();
   }, []);
 
-  // 计算单元边长（像素），保证网格是正方形且不溢出容器
   const cellPx = useMemo(() => {
     if (!base || box.w === 0 || box.h === 0) return 0;
-    const side = Math.min(box.w, box.h);            // 正方形区域边长
-    return Math.max(6, Math.floor(side / base));    // 下限 6px，避免过小
+    const side = Math.min(box.w, box.h);
+    return Math.max(6, Math.floor(side / base));
   }, [base, box]);
 
   const gridSidePx = cellPx * base;
-  const fontPx = Math.max(8, Math.floor(cellPx * 0.28)); // 字体随单元缩放
+  const fontPx = Math.max(8, Math.floor(cellPx * 0.28));
 
-  // 预生成所有坐标键，避免 100x100 时反复拼 key
+  // 预生成 key 顺序（从 y=base-1 到 0）
   const keys = useMemo(() => {
     const arr: string[] = [];
     for (let y = base - 1; y >= 0; y--) {
-      for (let x = 0; x < base; x++) {
-        arr.push(`${x},${y}`);
-      }
+      for (let x = 0; x < base; x++) arr.push(`${x},${y}`);
     }
     return arr;
   }, [base]);
 
+  // 鼠标移动时，根据 gridRef 计算当前指向的 (x,y)，并更新 tooltip 位置与内容
+  const onMouseMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    if (!wrapRef.current || !gridRef.current || cellPx === 0) return;
+    const wrapRect = wrapRef.current.getBoundingClientRect();
+    const gridRect = gridRef.current.getBoundingClientRect();
+
+    const cx = e.clientX;
+    const cy = e.clientY;
+
+    // 不在网格正方形区域内就隐藏
+    if (cx < gridRect.left || cx > gridRect.right || cy < gridRect.top || cy > gridRect.bottom) {
+      if (tip.show) setTip((t) => ({ ...t, show: false }));
+      return;
+    }
+
+    // 计算鼠标在网格内的相对像素
+    const rx = cx - gridRect.left;
+    const ry = cy - gridRect.top;
+
+    // DOM 网格原点在左上角，对应我们的数学坐标 (0, base-1)
+    const col = Math.floor(rx / cellPx);            // 0..base-1
+    const rowFromTop = Math.floor(ry / cellPx);     // 0..base-1 从上到下
+    const x = Math.min(Math.max(col, 0), base - 1);
+    const y = Math.min(Math.max(base - 1 - rowFromTop, 0), base - 1); // 转成我们用的 y 轴朝上
+
+    // 计算 tooltip 在 wrap 内的绝对定位（随鼠标）
+    const tx = cx - wrapRect.left + 12; // 右下偏移一点
+    const ty = cy - wrapRect.top + 12;
+
+    setTip({
+      show: true,
+      x: tx,
+      y: ty,
+      text: `(${x},${y})`,
+    });
+  };
+
+  const onMouseLeave: React.MouseEventHandler<HTMLDivElement> = () => {
+    if (tip.show) setTip((t) => ({ ...t, show: false }));
+  };
+
+  if (cellPx === 0) {
+    return (
+      <div ref={wrapRef} style={{ position: "relative", width: "100%", height: "100%",
+        border: "1px solid #e5e5e5", borderRadius: 8, background: "#fff" }}
+      />
+    );
+  }
+
   return (
-    <div ref={wrapRef} style={{ position:'relative', width:'100%', height:'100%', overflow:'auto',
-      border:'1px solid #e5e5e5', borderRadius:8, background:'#fff' }}>
+    <div
+      ref={wrapRef}
+      onMouseMove={onMouseMove}    // ← 绑定在外层容器（事件委托）
+      onMouseLeave={onMouseLeave}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "auto",
+        border: "1px solid #e5e5e5",
+        borderRadius: 8,
+        background: "#fff",
+      }}
+    >
+      {/* 居中正方形网格 */}
       <div
+        ref={gridRef}
         style={{
           width: gridSidePx,
           height: gridSidePx,
-          margin: '0 auto',
-          display: 'grid',
+          margin: "0 auto",
+          display: "grid",
           gridTemplateColumns: `repeat(${base}, ${cellPx}px)`,
           gridTemplateRows: `repeat(${base}, ${cellPx}px)`,
-          boxSizing: 'content-box',
+          boxSizing: "content-box",
         }}
       >
         {keys.map((key) => {
-          const items = cells[key] || []
-          const bgColor = items.length > 0 ? items[items.length - 1].color : 'white'
+          const items = cells[key] || [];
+          const bgColor = items.length > 0 ? items[items.length - 1].color : "white";
           return (
             <div
               key={key}
               style={{
-                // 为了让颜色“充分填充”，去掉边框与 padding
-                // 如需网格线，可把 border 打开为浅灰 1px
                 border: '1px solid #eee',
-                background: bgColor,
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
+                background: bgColor,      // 颜色充分填充
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
                 lineHeight: 1.1,
                 fontSize: fontPx,
-                color: 'black',
-                userSelect: 'none',
+                color: "black",
+                userSelect: "none",
               }}
               title={showLabels ? key : undefined}
             >
               {showLabels && items.length > 0 ? `(${key})` : null}
             </div>
-          )
+          );
         })}
       </div>
+
+      {/* 悬浮提示气泡 */}
+      {tip.show && (
+        <div
+          style={{
+            position: "absolute",
+            left: tip.x,
+            top: tip.y,
+            transform: "translate(-50%, -120%)",
+            background: "rgba(0,0,0,0.8)",
+            color: "white",
+            fontSize: 12,
+            padding: "4px 6px",
+            borderRadius: 6,
+            pointerEvents: "none",
+            zIndex: 10,
+            whiteSpace: "nowrap",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+          }}
+        >
+          {tip.text}
+        </div>
+      )}
     </div>
-  )
+  );
 }
