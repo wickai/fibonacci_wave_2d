@@ -87,6 +87,8 @@ export default function App() {
     [active]
   )
 
+  const [showLabels, setShowLabels] = useState<boolean>(false); // ← 新增：是否显示坐标文字
+
   return (
     <div style={{ fontFamily: 'Inter, system-ui, Arial', padding: 16 }}>
       <h1>Fibonacci–Lucas Mod Cycles Visualizer</h1>
@@ -106,6 +108,16 @@ export default function App() {
           <option value="lenAsc">按长度 ↑</option>
           <option value="lenDesc">按长度 ↓</option>
         </select>
+        {/* 新增：坐标文字开关 */}
+        <label style={{ marginLeft: 8 }}>
+          <input
+            type="checkbox"
+            checked={showLabels}
+            onChange={(e) => setShowLabels(e.target.checked)}
+            style={{ marginRight: 6 }}
+          />
+          显示坐标文字
+        </label>
       </p>
 
       {loading && <p>Loading…</p>}
@@ -175,7 +187,8 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: '80vh' }}>
             <h3 style={{ marginBottom: 8 }}>二维表格（显示坐标文字）</h3>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <Grid base={data.base} cells={grid.cells} />
+              {/* 传入新属性 showLabels */}
+              <Grid base={data.base} cells={grid.cells} showLabels={showLabels} />
             </div>
           </div>
         </div>
@@ -188,9 +201,11 @@ export default function App() {
 function Grid({
   base,
   cells,
+  showLabels,
 }: {
   base: number;
   cells: Record<string, { label: string; color: string }[]>;
+  showLabels: boolean;
 }) {
   // 容器尺寸监听
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -228,70 +243,48 @@ function Grid({
   }, [base]);
 
   return (
-    <div
-      ref={wrapRef}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        overflow: "auto",
-        border: "1px solid #e5e5e5",
-        borderRadius: 8,
-        background: "#fff",
-      }}
-    >
-      {/* 居中放置一个正方形网格区域 */}
+    <div ref={wrapRef} style={{ position:'relative', width:'100%', height:'100%', overflow:'auto',
+      border:'1px solid #e5e5e5', borderRadius:8, background:'#fff' }}>
       <div
         style={{
           width: gridSidePx,
           height: gridSidePx,
-          margin: "0 auto",
-          display: "grid",
+          margin: '0 auto',
+          display: 'grid',
           gridTemplateColumns: `repeat(${base}, ${cellPx}px)`,
           gridTemplateRows: `repeat(${base}, ${cellPx}px)`,
-          boxSizing: "content-box",
+          boxSizing: 'content-box',
         }}
       >
         {keys.map((key) => {
-          const items = cells[key] || [];
+          const items = cells[key] || []
+          const bgColor = items.length > 0 ? items[items.length - 1].color : 'white'
           return (
             <div
               key={key}
               style={{
-                border: "1px solid #eee",
-                boxSizing: "border-box",
-                padding: 2,
-                overflow: "hidden", // 过多文本裁剪
-                lineHeight: 1.15,
+                // 为了让颜色“充分填充”，去掉边框与 padding
+                // 如需网格线，可把 border 打开为浅灰 1px
+                border: '1px solid #eee',
+                background: bgColor,
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                lineHeight: 1.1,
                 fontSize: fontPx,
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "flex-start",
-                flexDirection: "column",
-                gap: 2,
+                color: 'black',
+                userSelect: 'none',
               }}
-              title={key}
+              title={showLabels ? key : undefined}
             >
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  background: items.length > 0 ? items[items.length - 1].color : "white",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: fontPx,
-                  color: "black",      // 文字统一黑色
-                  overflow: "hidden",
-                  textAlign: "center",
-                }}
-              >
-                {items.length > 0 ? `(${key})` : ""}
-              </div>
+              {showLabels && items.length > 0 ? `(${key})` : null}
             </div>
-          );
+          )
         })}
       </div>
     </div>
-  );
+  )
 }
