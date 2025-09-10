@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CyclesResponse } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
@@ -31,6 +31,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
 
   const [active, setActive] = useState<Record<number, boolean>>({})
+  const [order, setOrder] = useState<'original' | 'lenAsc' | 'lenDesc'>('original')
 
   const palette = usePalette()
 
@@ -53,6 +54,14 @@ export default function App() {
     fetchData()
   }, [base])
 
+  const sequenceList = useMemo(() => {
+    if (!data) return [] as { seq: number[]; idx: number; len: number }[]
+    const arr = data.sequences.map((seq, idx) => ({ seq, idx, len: seq.length }))
+    if (order === 'lenAsc') arr.sort((a, b) => (a.len - b.len) || (a.idx - b.idx))
+    if (order === 'lenDesc') arr.sort((a, b) => (b.len - a.len) || (a.idx - b.idx))
+    return arr
+  }, [data, order])
+
   const grid = useMemo(() => {
     // Build cell -> list of labels of coordinates to show
     const cells: Record<string, { label: string; color: string }[]> = {}
@@ -72,6 +81,12 @@ export default function App() {
     return { cells, size: data.base }
   }, [data, active, palette, base])
 
+  const totalSeqCount = data?.sequences.length ?? 0
+  const selectedCount = useMemo(
+    () => Object.values(active).filter(Boolean).length,
+    [active]
+  )
+
   return (
     <div style={{ fontFamily: 'Inter, system-ui, Arial', padding: 16 }}>
       <h1>Fibonacci–Lucas Mod Cycles Visualizer</h1>
@@ -85,6 +100,12 @@ export default function App() {
           onChange={(e) => setBase(parseInt(e.target.value || '1', 10))}
           style={{ width: 100, marginLeft: 8 }}
         />
+        &nbsp;&nbsp;排序：
+        <select value={order} onChange={(e) => setOrder(e.target.value as any)} style={{ marginLeft: 8 }}>
+          <option value="original">原始顺序</option>
+          <option value="lenAsc">按长度 ↑</option>
+          <option value="lenDesc">按长度 ↓</option>
+        </select>
       </p>
 
       {loading && <p>Loading…</p>}
@@ -93,9 +114,25 @@ export default function App() {
       {data && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
           <div>
-            <h3>数列（点击切换显示）</h3>
+            <h3>
+              数列（{totalSeqCount} 个，已选 {selectedCount}）
+              <button
+                onClick={() => setActive({})}
+                style={{
+                  marginLeft: 12,
+                  padding: '2px 8px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: '1px solid #aaa',
+                  cursor: 'pointer',
+                  background: '#f9f9f9'
+                }}
+              >
+                取消选择
+              </button>
+            </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflow: 'auto' }}>
-              {data.sequences.map((seq, idx) => {
+              {sequenceList.map(({ seq, idx, len }) => {
                 const color = palette[idx % palette.length]
                 const on = !!active[idx]
                 return (
@@ -109,20 +146,37 @@ export default function App() {
                       border: `2px solid ${on ? color : '#ccc'}`,
                       background: on ? '#fafafa' : 'white',
                       cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      justifyContent: 'space-between'
                     }}
-                    title={`颜色: ${color}`}
+                    title={`颜色: ${color} | 长度: ${len}`}
                   >
-                    <span style={{ display: 'inline-block', width: 12, height: 12, background: color, borderRadius: 3, marginRight: 8 }} />
-                    [{seq.join(', ')}]
+                    <span style={{ display: 'inline-block', width: 12, height: 12, background: color, borderRadius: 3 }} />
+                    <span style={{ flex: 1, marginLeft: 4 }}>[{seq.join(', ')}]</span>
+                    {/* 新增的长度徽标 */}
+                    <span style={{
+                      fontSize: 12,
+                      padding: '2px 6px',
+                      borderRadius: 8,
+                      border: `1px solid ${color}`,
+                      color,
+                      whiteSpace: 'nowrap'
+                    }}>
+                      长度 {len}
+                    </span>
                   </button>
                 )
               })}
             </div>
           </div>
 
-          <div>
-            <h3>二维表格（显示坐标文字）</h3>
-            <Grid base={data.base} cells={grid.cells} />
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: '80vh' }}>
+            <h3 style={{ marginBottom: 8 }}>二维表格（显示坐标文字）</h3>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Grid base={data.base} cells={grid.cells} />
+            </div>
           </div>
         </div>
       )}
@@ -130,31 +184,114 @@ export default function App() {
   )
 }
 
-function Grid({ base, cells }: { base: number; cells: Record<string, { label: string; color: string }[]> }) {
-  const size = base
-  const rows = []
-  for (let y = size - 1; y >= 0; y--) { // top row is highest y for visual clarity
-    const cols = []
-    for (let x = 0; x < size; x++) {
-      const key = `${x},${y}`
-      const items = cells[key] || []
-      cols.push(
-        <td key={key} style={{ width: 56, height: 48, border: '1px solid #ddd', verticalAlign: 'top', padding: 4, fontSize: 12 }}>
-          {items.map((it, i) => (
-            <div key={i} style={{ color: it.color, lineHeight: 1.2 }}>{it.label}</div>
-          ))}
-        </td>
-      )
+
+function Grid({
+  base,
+  cells,
+}: {
+  base: number;
+  cells: Record<string, { label: string; color: string }[]>;
+}) {
+  // 容器尺寸监听
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0].contentRect;
+      setBox({ w: cr.width, h: cr.height });
+    });
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // 计算单元边长（像素），保证网格是正方形且不溢出容器
+  const cellPx = useMemo(() => {
+    if (!base || box.w === 0 || box.h === 0) return 0;
+    const side = Math.min(box.w, box.h);            // 正方形区域边长
+    return Math.max(6, Math.floor(side / base));    // 下限 6px，避免过小
+  }, [base, box]);
+
+  const gridSidePx = cellPx * base;
+  const fontPx = Math.max(8, Math.floor(cellPx * 0.28)); // 字体随单元缩放
+
+  // 预生成所有坐标键，避免 100x100 时反复拼 key
+  const keys = useMemo(() => {
+    const arr: string[] = [];
+    for (let y = base - 1; y >= 0; y--) {
+      for (let x = 0; x < base; x++) {
+        arr.push(`${x},${y}`);
+      }
     }
-    rows.push(<tr key={y}>{cols}</tr>)
-  }
+    return arr;
+  }, [base]);
 
   return (
-    <div style={{ overflow: 'auto' }}>
-      <table style={{ borderCollapse: 'collapse' }}>
-        <tbody>{rows}</tbody>
-      </table>
-      <p style={{ marginTop: 8, color: '#555' }}>坐标 (x,y) 由数列相邻元素组成，并包含环回（最后一个与第一个）。</p>
+    <div
+      ref={wrapRef}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "auto",
+        border: "1px solid #e5e5e5",
+        borderRadius: 8,
+        background: "#fff",
+      }}
+    >
+      {/* 居中放置一个正方形网格区域 */}
+      <div
+        style={{
+          width: gridSidePx,
+          height: gridSidePx,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: `repeat(${base}, ${cellPx}px)`,
+          gridTemplateRows: `repeat(${base}, ${cellPx}px)`,
+          boxSizing: "content-box",
+        }}
+      >
+        {keys.map((key) => {
+          const items = cells[key] || [];
+          return (
+            <div
+              key={key}
+              style={{
+                border: "1px solid #eee",
+                boxSizing: "border-box",
+                padding: 2,
+                overflow: "hidden", // 过多文本裁剪
+                lineHeight: 1.15,
+                fontSize: fontPx,
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "flex-start",
+                flexDirection: "column",
+                gap: 2,
+              }}
+              title={key}
+            >
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  background: items.length > 0 ? items[items.length - 1].color : "white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: fontPx,
+                  color: "black",      // 文字统一黑色
+                  overflow: "hidden",
+                  textAlign: "center",
+                }}
+              >
+                {items.length > 0 ? `(${key})` : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
-  )
+  );
 }
