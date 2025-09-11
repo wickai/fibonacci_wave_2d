@@ -70,7 +70,7 @@ def enumerate_cycles(base: int) -> List[List[Tuple[int,int]]]:
     return unique
 
 @app.get("/cycles", response_model=CyclesResponse)
-def get_cycles(base: int = Query(ge=1, le=200)):
+def get_cycles(base: int = Query(ge=1, le=500)):
     """
     Return all distinct cycles for the Fibonacci-like map modulo `base`.
     Each cycle is represented as the list of (a,b) states; `sequences` returns the list of `a`'s.
@@ -82,5 +82,5 @@ def get_cycles(base: int = Query(ge=1, le=200)):
     """
     cycles_pairs = enumerate_cycles(base)
     sequences = [[a for (a, b) in cyc] for cyc in cycles_pairs]
-
+    print("length of cycles:", len(cycles_pairs), "")
     return CyclesResponse(base=base, sequences=sequences, cycles_pairs=cycles_pairs)
