@@ -1,7 +1,7 @@
 # Fibonacci–Lucas Mod Cycles Visualizer
 
 ![斐波那契数列模300的前30序列](figs/mod300_fib_30seqs.png)
-
+（斐波那契数列模300的前30序列）
 
 本项目用于研究 **Fibonacci–Lucas 数列在模 $m$ 下的循环性质**，并通过交互式可视化直观展示。  
 不同的模数 $m$ 会生成若干 **不相同的循环（cycles）**，每个循环可表示为一条有限的数列。  

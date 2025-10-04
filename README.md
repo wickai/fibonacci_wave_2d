@@ -1,6 +1,7 @@
 # Fibonacci–Lucas Mod Cycles Visualizer
 
 ![Fibonacci sequence modulo 300, first 30 sequences](figs/mod300_fib_30seqs.png)
+(Fibonacci sequence modulo 300, first 30 sequences)
 
 This project is designed to study the **cyclic behavior of Fibonacci–Lucas sequences modulo $m$**, and to visualize these cycles interactively.  
 Different moduli $m$ generate multiple **distinct cycles**, each represented as a finite sequence.  
