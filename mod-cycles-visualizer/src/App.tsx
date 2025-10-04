@@ -268,12 +268,12 @@ function Grid({
   base,
   cells,
   showLabels,
-  centered, // ✅ 新增：是否中心化渲染（原点居中）
+  centered, // ✅ 接收 centered
 }: {
   base: number;
   cells: Record<string, { label: string; color: string }[]>;
   showLabels: boolean;
-  centered: boolean; // ✅ 新增
+  centered: boolean; // ✅ 声明 centered
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -302,44 +302,55 @@ function Grid({
   const gridSidePx = cellPx * base;
   const fontPx = Math.max(8, Math.floor(cellPx * 0.28));
 
-  // ====== 关键：根据 centered 生成显示坐标轴序列 ======
+  // ====== 关键：根据后端规则生成“显示坐标轴” ======
+  // 后端规则：x > base/2 才减 base
+  // -> 偶数 base：范围是 [-(half-1) .. +half]（没有 -half，有 +half）
+  // -> 奇数 base：范围是 [-half .. +half]（对称）
   const half = Math.floor(base / 2);
 
-  // x 从负到正（左->右）
+  const displayRangeAsc = (min: number, max: number) =>
+    Array.from({ length: max - min + 1 }, (_, i) => min + i);
+
   const displayXs = useMemo(() => {
     if (!centered) {
-      // 旧模式：0..base-1
-      return Array.from({ length: base }, (_, x) => x);
+      return Array.from({ length: base }, (_, x) => x); // 0..base-1
     }
-    // 居中：[-half .. base-half-1]
-    return Array.from({ length: base }, (_, i) => i - half);
+    if (base % 2 === 0) {
+      const min = -(half - 1);
+      const max = +half;
+      return displayRangeAsc(min, max); // 偶数：-(half-1) .. +half
+    } else {
+      const min = -half;
+      const max = +half;
+      return displayRangeAsc(min, max); // 奇数：-half .. +half
+    }
   }, [base, centered, half]);
 
-  // y 从大到小（上->下）
   const displayYs = useMemo(() => {
     if (!centered) {
-      // 旧模式：base-1..0
-      return Array.from({ length: base }, (_, i) => base - 1 - i);
+      return Array.from({ length: base }, (_, i) => base - 1 - i); // base-1..0
     }
-    // 居中：max..min
-    const minY = -half;
-    const maxY = base - half - 1;
-    return Array.from({ length: base }, (_, i) => maxY - i);
+    if (base % 2 === 0) {
+      const min = -(half - 1);
+      const max = +half;
+      return displayRangeAsc(min, max).reverse(); // 上->下：max..min
+    } else {
+      const min = -half;
+      const max = +half;
+      return displayRangeAsc(min, max).reverse(); // 上->下：max..min
+    }
   }, [base, centered, half]);
 
-  // ====== 渲染顺序与数据键 ======
-  // centered=true 时，后端 cells 的 key 已是中心化坐标字符串，如 "-4,3"
-  // centered=false 时，仍然是 "0,0" .. "m-1,m-1"
+  // 生成渲染顺序与查找键
   const keys = useMemo(() => {
     if (!centered) {
-      // 原逻辑
       const arr: string[] = [];
       for (let y = base - 1; y >= 0; y--) {
         for (let x = 0; x < base; x++) arr.push(`${x},${y}`);
       }
       return arr.map(k => ({ displayKey: k, lookupKey: k }));
     }
-    // 居中：按显示坐标顺序渲染，同时 lookup 也用显示坐标（后端返回的就是中心化键）
+    // 居中：显示坐标和 lookup 都用中心化键（后端就这么返回的）
     const arr: { displayKey: string; lookupKey: string }[] = [];
     for (const dy of displayYs) {
       for (const dx of displayXs) {
@@ -350,7 +361,7 @@ function Grid({
     return arr;
   }, [base, centered, displayXs, displayYs]);
 
-  // 悬浮提示：根据格子索引映射到显示坐标
+  // 悬浮提示：映射到“显示坐标”
   const onMouseMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (!wrapRef.current || !gridRef.current || cellPx === 0) return;
     const wrapRect = wrapRef.current.getBoundingClientRect();
