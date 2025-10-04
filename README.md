@@ -55,7 +55,7 @@ Visualization approach:
 1. Navigate to the backend directory:
    ```bash
    cd backend
-````
+    ```
 
 2. Install dependencies:
 
@@ -110,3 +110,15 @@ Visualization approach:
 * Support visualization of Lucas sequences and general $(a,b)$-Fibonacci sequences.
 
 
+---
+
+## License / Copyright
+
+© 2025 Wei Kai (weikai105b@gmail.com)  
+
+This project is **for personal, educational, or research use only**.  
+**Commercial use is not permitted** without explicit permission from the author.  
+
+You may freely **view, modify, and share** this content under the condition that it is **not used for commercial purposes** and proper attribution is given.
+
+---

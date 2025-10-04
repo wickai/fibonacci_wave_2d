@@ -55,7 +55,7 @@ Fibonacci 数列在模 $m$ 下会表现出**纯周期性**，其基本周期称�
 1. 进入后端目录：
    ```bash
    cd backend
-````
+    ```
 
 2. 安装依赖：
 
@@ -108,3 +108,18 @@ Fibonacci 数列在模 $m$ 下会表现出**纯周期性**，其基本周期称�
 * 支持导出循环数据为 CSV/JSON。
 * 增加统计面板（循环长度分布直方图、剩余类分布）。
 * 支持 Lucas 序列和一般 \$(a,b)\$-Fibonacci 的可视化。
+* 在mod 2或者1的时候可能会有bug
+
+---
+
+## License / Copyright
+
+© 2025 Wei Kai (weikai105b@gmail.com)  
+
+This project is **for personal, educational, or research use only**.  
+**Commercial use is not permitted** without explicit permission from the author.  
+
+You may freely **view, modify, and share** this content under the condition that it is **not used for commercial purposes** and proper attribution is given.
+
+---
+
