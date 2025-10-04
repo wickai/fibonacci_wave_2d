@@ -1,5 +1,8 @@
 # Fibonacci–Lucas Mod Cycles Visualizer
 
+![斐波那契数列模300的前30序列](figs/mod300_fib_30seqs.png)
+
+
 本项目用于研究 **Fibonacci–Lucas 数列在模 $m$ 下的循环性质**，并通过交互式可视化直观展示。  
 不同的模数 $m$ 会生成若干 **不相同的循环（cycles）**，每个循环可表示为一条有限的数列。  
 在前端界面中，用户可以选择模数、切换展示模式，并在二维表格中观察这些循环对应的坐标分布。
@@ -26,6 +29,24 @@ Fibonacci 数列在模 $m$ 下会表现出**纯周期性**，其基本周期称�
 - [The Fibonacci Sequence Modulo m](https://webspace.ship.edu/msrenault/fibonacci/fib.htm)
 - [FIBONACCI RANDOM GENERATOR AND FOURIER ANALYSIS](https://surim.stanford.edu/sites/g/files/sbiybj26191/files/media/file/fibonacci_random_generator_and_fourier_analysis_0.pdf) gpt-5 researched paper
 
+1. 斐波那契数列科普
+
+- [OI Wiki: 斐波那契数列性质](https://oi-wiki.org/math/combinatorics/fibonacci/)  
+  简介：详细介绍斐波那契数列的定义、性质及相关组合数学应用。
+
+- [OEIS: A000045 斐波那契数列](https://oeis.org/A000045)  
+  简介：OEIS（在线整数序列百科）中的斐波那契数列记录，包含前若干项、公式及参考文献。
+  
+2. 准晶体与相关铺砖
+
+- [罗杰·彭洛斯 (Roger Penrose)](https://zh.wikipedia.org/wiki/%E7%BE%85%E5%82%91%C2%B7%E6%BD%98%E6%B4%9B%E6%96%AF)  
+  简介：英国数学家，提出了 **彭洛斯铺砖（Penrose tiling）** 的概念，首次实现非周期性的五重对称结构。
+
+- [彭罗斯密铺 (Penrose tiling)](https://zh.wikipedia.org/wiki/%E5%BD%AD%E7%BE%85%E6%96%AF%E5%AF%86%E9%8B%AA)  
+  简介：一种非周期性铺砖方法，能产生五重对称图案，与准晶体结构相关。
+
+- [王氏砖](https://zh.wikipedia.org/wiki/%E7%8E%8B%E6%B0%8F%E7%A0%96)  
+  简介：中国数学家王教授提出的一种准周期铺砖方法，与彭罗斯铺砖类似，可产生复杂的非重复图案。
 ---
 
 ## 启动说明
