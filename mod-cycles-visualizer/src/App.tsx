@@ -1,17 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CyclesResponse } from './types'
+import * as d3 from "d3"
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
-function usePalette() {
-  // a simple repeating palette
-  const colors = [
-    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-    '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-    '#bcbd22', '#17becf', '#393b79', '#637939',
-  ]
-  return colors
+// function usePalette() {
+//   // a simple repeating palette
+//   const colors = [
+//     '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+//     '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+//     '#bcbd22', '#17becf', '#393b79', '#637939',
+//   ]
+//   return colors
+// }
+// function usePalette(n = 200) {
+//   const colors = []
+//   // 这里用 d3.interpolateRainbow 生成连续的彩虹色带
+//   for (let i = 0; i < n; i++) {
+//     const t = i / n // 0 ~ 1
+//     colors.push(d3.interpolateRainbow(t))
+//   }
+//   return colors
+// }
+
+function usePalette(n: number) {
+  return useMemo(() => {
+    if (!n || n <= 0) return []
+    const colors: string[] = []
+    // 均匀取色：每个 seq 拿到不同的彩虹色
+    for (let i = 0; i < n; i++) {
+      const t = i / n // 0 ~ 1
+      colors.push(d3.interpolateRainbow(t))
+    }
+    return colors
+  }, [n])
 }
+
 
 function makePairsCircular(seq: number[]): [number, number][] {
   const pairs: [number, number][] = []
@@ -33,7 +57,9 @@ export default function App() {
   const [active, setActive] = useState<Record<number, boolean>>({})
   const [order, setOrder] = useState<'original' | 'lenAsc' | 'lenDesc'>('original')
 
-  const palette = usePalette()
+  // const palette = usePalette()
+  const colorCount = data?.sequences.length ?? 0
+  const palette = usePalette(colorCount)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,8 +69,11 @@ export default function App() {
         const res = await fetch(`${API_BASE}/cycles?base=${base}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json: CyclesResponse = await res.json()
+        // 默认全选
+        const all: Record<number, boolean> = {}
+        json.sequences.forEach((_, idx) => { all[idx] = true })
         setData(json)
-        setActive({}) // reset selection when base changes
+        setActive(all)
       } catch (e: any) {
         setError(e.message || 'Fetch error')
       } finally {
@@ -97,7 +126,7 @@ export default function App() {
         <input
           type="number"
           min={1}
-          max={64}
+          max={5000}
           value={base}
           onChange={(e) => setBase(parseInt(e.target.value || '1', 10))}
           style={{ width: 100, marginLeft: 8 }}
@@ -141,6 +170,26 @@ export default function App() {
                 }}
               >
                 取消选择
+              </button>
+              {/* 新增的全选按钮 */}
+              <button
+                onClick={() => {
+                  if (!data) return
+                  const all: Record<number, boolean> = {}
+                  data.sequences.forEach((_, idx) => { all[idx] = true })
+                  setActive(all)
+                }}
+                style={{
+                  marginLeft: 8,
+                  padding: '2px 8px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: '1px solid #aaa',
+                  cursor: 'pointer',
+                  background: '#f9f9f9'
+                }}
+              >
+                全选
               </button>
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflow: 'auto' }}>
