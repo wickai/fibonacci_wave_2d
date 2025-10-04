@@ -61,12 +61,15 @@ export default function App() {
   const colorCount = data?.sequences.length ?? 0
   const palette = usePalette(colorCount)
 
+  const [centered, setCentered] = useState<boolean>(false);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`${API_BASE}/cycles?base=${base}`)
+        // const res = await fetch(`${API_BASE}/cycles?base=${base}`)
+        const res = await fetch(`${API_BASE}/cycles?base=${base}&centered=${centered}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json: CyclesResponse = await res.json()
         // 默认全选
@@ -81,7 +84,7 @@ export default function App() {
       }
     }
     fetchData()
-  }, [base])
+  }, [base, centered])
 
   const sequenceList = useMemo(() => {
     if (!data) return [] as { seq: number[]; idx: number; len: number }[]
@@ -137,7 +140,8 @@ export default function App() {
           <option value="lenAsc">按长度 ↑</option>
           <option value="lenDesc">按长度 ↓</option>
         </select>
-        {/* 新增：坐标文字开关 */}
+
+        {/* 坐标文字开关 */}
         <label style={{ marginLeft: 8 }}>
           <input
             type="checkbox"
@@ -146,6 +150,17 @@ export default function App() {
             style={{ marginRight: 6 }}
           />
           显示坐标文字
+        </label>
+
+        {/* ✅ 新增：居中坐标开关 */}
+        <label style={{ marginLeft: 12 }}>
+          <input
+            type="checkbox"
+            checked={centered}
+            onChange={(e) => setCentered(e.target.checked)}
+            style={{ marginRight: 6 }}
+          />
+          居中坐标(x,y ∈ [-m/2, m/2))
         </label>
       </p>
 
@@ -234,10 +249,13 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: '80vh' }}>
-            <h3 style={{ marginBottom: 8 }}>二维表格（显示坐标文字）</h3>
+            <h3 style={{ marginBottom: 8 }}>
+              二维表格（{centered ? "中心化坐标" : "原始坐标"}）
+
+            </h3>
             <div style={{ flex: 1, minHeight: 0 }}>
-              {/* 传入新属性 showLabels */}
-              <Grid base={data.base} cells={grid.cells} showLabels={showLabels} />
+              {/* ✅ 把 centered 传给 Grid */}
+              <Grid base={data.base} cells={grid.cells} showLabels={showLabels} centered={centered} />
             </div>
           </div>
         </div>
@@ -250,21 +268,19 @@ function Grid({
   base,
   cells,
   showLabels,
+  centered, // ✅ 新增：是否中心化渲染（原点居中）
 }: {
   base: number;
   cells: Record<string, { label: string; color: string }[]>;
   showLabels: boolean;
+  centered: boolean; // ✅ 新增
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null); // ← 新增：内层正方形网格引用
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
 
-  // 悬浮提示状态
   const [tip, setTip] = useState<{ show: boolean; x: number; y: number; text: string }>({
-    show: false,
-    x: 0,
-    y: 0,
-    text: "",
+    show: false, x: 0, y: 0, text: "",
   });
 
   useEffect(() => {
@@ -286,50 +302,77 @@ function Grid({
   const gridSidePx = cellPx * base;
   const fontPx = Math.max(8, Math.floor(cellPx * 0.28));
 
-  // 预生成 key 顺序（从 y=base-1 到 0）
+  // ====== 关键：根据 centered 生成显示坐标轴序列 ======
+  const half = Math.floor(base / 2);
+
+  // x 从负到正（左->右）
+  const displayXs = useMemo(() => {
+    if (!centered) {
+      // 旧模式：0..base-1
+      return Array.from({ length: base }, (_, x) => x);
+    }
+    // 居中：[-half .. base-half-1]
+    return Array.from({ length: base }, (_, i) => i - half);
+  }, [base, centered, half]);
+
+  // y 从大到小（上->下）
+  const displayYs = useMemo(() => {
+    if (!centered) {
+      // 旧模式：base-1..0
+      return Array.from({ length: base }, (_, i) => base - 1 - i);
+    }
+    // 居中：max..min
+    const minY = -half;
+    const maxY = base - half - 1;
+    return Array.from({ length: base }, (_, i) => maxY - i);
+  }, [base, centered, half]);
+
+  // ====== 渲染顺序与数据键 ======
+  // centered=true 时，后端 cells 的 key 已是中心化坐标字符串，如 "-4,3"
+  // centered=false 时，仍然是 "0,0" .. "m-1,m-1"
   const keys = useMemo(() => {
-    const arr: string[] = [];
-    for (let y = base - 1; y >= 0; y--) {
-      for (let x = 0; x < base; x++) arr.push(`${x},${y}`);
+    if (!centered) {
+      // 原逻辑
+      const arr: string[] = [];
+      for (let y = base - 1; y >= 0; y--) {
+        for (let x = 0; x < base; x++) arr.push(`${x},${y}`);
+      }
+      return arr.map(k => ({ displayKey: k, lookupKey: k }));
+    }
+    // 居中：按显示坐标顺序渲染，同时 lookup 也用显示坐标（后端返回的就是中心化键）
+    const arr: { displayKey: string; lookupKey: string }[] = [];
+    for (const dy of displayYs) {
+      for (const dx of displayXs) {
+        const k = `${dx},${dy}`;
+        arr.push({ displayKey: k, lookupKey: k });
+      }
     }
     return arr;
-  }, [base]);
+  }, [base, centered, displayXs, displayYs]);
 
-  // 鼠标移动时，根据 gridRef 计算当前指向的 (x,y)，并更新 tooltip 位置与内容
+  // 悬浮提示：根据格子索引映射到显示坐标
   const onMouseMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (!wrapRef.current || !gridRef.current || cellPx === 0) return;
     const wrapRect = wrapRef.current.getBoundingClientRect();
     const gridRect = gridRef.current.getBoundingClientRect();
 
-    const cx = e.clientX;
-    const cy = e.clientY;
-
-    // 不在网格正方形区域内就隐藏
+    const cx = e.clientX, cy = e.clientY;
     if (cx < gridRect.left || cx > gridRect.right || cy < gridRect.top || cy > gridRect.bottom) {
       if (tip.show) setTip((t) => ({ ...t, show: false }));
       return;
     }
 
-    // 计算鼠标在网格内的相对像素
     const rx = cx - gridRect.left;
     const ry = cy - gridRect.top;
+    const col = Math.min(Math.max(Math.floor(rx / cellPx), 0), base - 1);
+    const rowFromTop = Math.min(Math.max(Math.floor(ry / cellPx), 0), base - 1);
 
-    // DOM 网格原点在左上角，对应我们的数学坐标 (0, base-1)
-    const col = Math.floor(rx / cellPx);            // 0..base-1
-    const rowFromTop = Math.floor(ry / cellPx);     // 0..base-1 从上到下
-    const x = Math.min(Math.max(col, 0), base - 1);
-    const y = Math.min(Math.max(base - 1 - rowFromTop, 0), base - 1); // 转成我们用的 y 轴朝上
+    const dx = centered ? displayXs[col] : col;
+    const dy = centered ? displayYs[rowFromTop] : (base - 1 - rowFromTop);
 
-    // 计算 tooltip 在 wrap 内的绝对定位（随鼠标）
-    const tx = cx - wrapRect.left + 12; // 右下偏移一点
+    const tx = cx - wrapRect.left + 12;
     const ty = cy - wrapRect.top + 12;
-
-    setTip({
-      show: true,
-      x: tx,
-      y: ty,
-      text: `(${x},${y})`,
-    });
+    setTip({ show: true, x: tx, y: ty, text: `(${dx},${dy})` });
   };
 
   const onMouseLeave: React.MouseEventHandler<HTMLDivElement> = () => {
@@ -347,7 +390,7 @@ function Grid({
   return (
     <div
       ref={wrapRef}
-      onMouseMove={onMouseMove}    // ← 绑定在外层容器（事件委托）
+      onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       style={{
         position: "relative",
@@ -359,7 +402,6 @@ function Grid({
         background: "#fff",
       }}
     >
-      {/* 居中正方形网格 */}
       <div
         ref={gridRef}
         style={{
@@ -372,15 +414,17 @@ function Grid({
           boxSizing: "content-box",
         }}
       >
-        {keys.map((key) => {
-          const items = cells[key] || [];
+        {keys.map(({ displayKey, lookupKey }) => {
+          const items = cells[lookupKey] || [];
           const bgColor = items.length > 0 ? items[items.length - 1].color : "white";
+          const label = showLabels && items.length > 0 ? `(${displayKey})` : undefined;
+
           return (
             <div
-              key={key}
+              key={displayKey}
               style={{
                 border: '1px solid #eee',
-                background: bgColor,      // 颜色充分填充
+                background: bgColor,
                 width: "100%",
                 height: "100%",
                 display: "flex",
@@ -392,15 +436,14 @@ function Grid({
                 color: "black",
                 userSelect: "none",
               }}
-              title={showLabels ? key : undefined}
+              title={label}
             >
-              {showLabels && items.length > 0 ? `(${key})` : null}
+              {label}
             </div>
           );
         })}
       </div>
 
-      {/* 悬浮提示气泡 */}
       {tip.show && (
         <div
           style={{
