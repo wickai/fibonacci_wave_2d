@@ -2,10 +2,13 @@
 #   uvicorn main:app --reload --port 8000
 # Requires: fastapi, uvicorn, pydantic, corsheaders
 
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from cycles_lib import enumerate_cycles, to_centered
+import os, json, shutil
+from encode_cycles import classify_and_encode
 
 app = FastAPI(title="Fibonacci–Lucas Mod Cycles API")
 
@@ -22,60 +25,7 @@ class CyclesResponse(BaseModel):
     sequences: List[List[int]]                 # sequences of first components along each cycle
     cycles_pairs: List[List[Tuple[int,int]]]   # the (a,b) state cycles (possibly centered if requested)
 
-# Transition on ordered pair (a,b): T(a,b) = (b, (a+b) mod base)
-# This is the state evolution for Fibonacci-like recurrences modulo base.
-
-def enumerate_cycles(base: int) -> List[List[Tuple[int,int]]]:
-    visited: Set[Tuple[int,int]] = set()
-    cycles: List[List[Tuple[int,int]]] = []
-
-    for a0 in range(base):
-        for b0 in range(base):
-            s = (a0,b0)
-            if s in visited:
-                continue
-
-            path: List[Tuple[int,int]] = []
-            seen_index: Dict[Tuple[int,int], int] = {}
-            while s not in seen_index:
-                seen_index[s] = len(path)
-                path.append(s)
-                s = (s[1], (s[0] + s[1]) % base)
-
-            # s just repeated; extract the cycle portion
-            start = seen_index[s]
-            cycle_states = path[start:]
-
-            # mark entire path as visited to avoid reprocessing
-            for node in path:
-                visited.add(node)
-
-            if cycle_states:
-                # canonicalize cycle rotation for stability (optional)
-                min_idx = min(range(len(cycle_states)), key=lambda i: cycle_states[i])
-                canonical = cycle_states[min_idx:] + cycle_states[:min_idx]
-                cycles.append(canonical)
-
-    # deduplicate cycles
-    unique = []
-    seen = set()
-    for cyc in cycles:
-        key = tuple(cyc)
-        if key not in seen:
-            seen.add(key)
-            unique.append(cyc)
-    return unique
-
-# ---------- NEW: center mapping helper ----------
-def to_centered(x: int, base: int) -> int:
-    """
-    Map x in [0, base-1] to 'centered' range by rule:
-      if x > base/2: x - base  else x
-    NOTE: This follows the exact requirement "每个大于 m/2 的数值，减去 m".
-    """
-    # Using float division is fine for the strict ">" comparison.
-    return x - base if x > (base / 2) else x
-# ------------------------------------------------
+#
 
 @app.get("/cycles", response_model=CyclesResponse)
 def get_cycles(
@@ -108,3 +58,31 @@ def get_cycles(
         sequences = [[a for (a, b) in cyc] for cyc in raw_cycles_pairs]
         print("length of cycles:", len(raw_cycles_pairs))
         return CyclesResponse(base=base, sequences=sequences, cycles_pairs=raw_cycles_pairs)
+
+@app.get("/encoded")
+def get_encoded(
+    base: int = Query(ge=1, le=700),
+    publish: bool = Query(default=False, description="If true, also copy cache to mod-cycles-visualizer/public/results"),
+):
+    """
+    Auto-cached encoded cycles for given base:
+      - If backend cache exists: read and return
+      - Else: compute, save to backend cache, then return
+    Optionally publish a copy to the frontend public/results for direct static loading.
+    """
+    here = os.path.dirname(__file__)
+    cache_path = os.path.join(here, f"cycles_m{base}_encoded.json")
+    if os.path.exists(cache_path):
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = classify_and_encode(base)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    if publish:
+        repo_root = os.path.abspath(os.path.join(here, ".."))
+        public_path = os.path.join(repo_root, "mod-cycles-visualizer", "public", "results", f"cycles_m{base}_encoded.json")
+        os.makedirs(os.path.dirname(public_path), exist_ok=True)
+        with open(public_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    return data

@@ -335,3 +335,8 @@ pyrightconfig.json
 # jupyter/ outputs/
 jupyter/
 outputs/
+
+
+# backend/
+backend/*.json
+backend/*.csv

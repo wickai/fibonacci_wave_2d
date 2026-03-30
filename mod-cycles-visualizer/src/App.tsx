@@ -48,8 +48,8 @@ function makePairsCircular(seq: number[]): [number, number][] {
   return pairs
 }
 
-export default function App() {
-  const [base, setBase] = useState<number>(4)
+export default function App(props: { requestedBase?: number; highlightTargets?: number[][]; highlightToken?: number } = {}) {
+  const [base, setBase] = useState<number>(props.requestedBase ?? 4)
   const [data, setData] = useState<CyclesResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +62,12 @@ export default function App() {
   const palette = usePalette(colorCount)
 
   const [centered, setCentered] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof props.requestedBase === 'number' && props.requestedBase !== base) {
+      setBase(props.requestedBase)
+    }
+  }, [props.requestedBase])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -85,6 +91,39 @@ export default function App() {
     }
     fetchData()
   }, [base, centered])
+
+  // rotation/repeat equality
+  const eqByRotationRepeat = (a: number[], b: number[]) => {
+    if (a.length === 0 || b.length === 0) return false
+    // ensure a is the longer or equal
+    let long = a, short = b
+    if (long.length < short.length) {
+      long = b; short = a
+    }
+    if (long.length % short.length !== 0) return false
+    for (let r = 0; r < short.length; r++) {
+      let ok = true
+      for (let i = 0; i < long.length; i++) {
+        if (long[i] !== short[(i + r) % short.length]) { ok = false; break }
+      }
+      if (ok) return true
+    }
+    return false
+  }
+
+  useEffect(() => {
+    if (!data || !props.highlightTargets || !props.highlightTargets.length) return
+    const targets = props.highlightTargets.map(t =>
+      centered ? t.map(x => (x > base / 2 ? x - base : x)) : t
+    )
+    const on: Record<number, boolean> = {}
+    data.sequences.forEach((seq, idx) => {
+      on[idx] = targets.some(t => eqByRotationRepeat(seq, t))
+    })
+    if (Object.values(on).some(Boolean)) {
+      setActive(on)
+    }
+  }, [data, props.highlightToken, centered, base])
 
   const sequenceList = useMemo(() => {
     if (!data) return [] as { seq: number[]; idx: number; len: number }[]
