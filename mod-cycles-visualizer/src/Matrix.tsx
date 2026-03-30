@@ -34,7 +34,7 @@ export default function Matrix() {
   const [csvText, setCsvText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'dom' | 'unique' | 'uniqE' | 'uniqB'>('dom'); // 可视化模式：主导/E-B唯一覆盖
+  const [mode, setMode] = useState<'dom' | 'unique' | 'uniqE' | 'uniqB' | 'uniqOverlay'>('dom'); // 可视化模式：主导/E-B唯一覆盖/叠加
   const [op, setOp] = useState<'add' | 'sub'>('add');
   const [leftGroup, setLeftGroup] = useState<'B' | 'E'>('B');
   const [rightGroup, setRightGroup] = useState<'B' | 'E'>('E');
@@ -42,6 +42,8 @@ export default function Matrix() {
   const [encodedErr, setEncodedErr] = useState<string | null>(null);
   const [vizTargets, setVizTargets] = useState<number[][]>([]);
   const [vizToken, setVizToken] = useState<number>(0);
+  const [vizIds, setVizIds] = useState<string[]>([]);
+  const [vizIdsToken, setVizIdsToken] = useState<number>(0);
   const [showUniqCounters, setShowUniqCounters] = useState<boolean>(false);
 
   useEffect(() => {
@@ -261,8 +263,8 @@ export default function Matrix() {
       const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
       const r = lerp(255, 244, t);
       const g = lerp(255, 160, t);
-      const b = lerp(255, 0, t);
-      return `rgba(${r},${g},${b},0.9)`; // 白→橙
+      const bb = lerp(255, 0, t);
+      return `rgba(${r},${g},${bb},0.9)`; // 白→橙
     }
     if (mode === 'uniqB') {
       const raw = Math.min(c.uniqB / (globalTotals.totalB || 1), 1);
@@ -273,6 +275,25 @@ export default function Matrix() {
       const g = lerp(255, 133, t);
       const bb = lerp(255, 244, t);
       return `rgba(${r},${g},${bb},0.9)`; // 白→蓝
+    }
+    if (mode === 'uniqOverlay') {
+      // 同时叠加 E 与 B 的唯一覆盖率，基于全局极值归一化
+      const rawE = Math.min(c.uniqE / (globalTotals.totalE || 1), 1);
+      const rawB = Math.min(c.uniqB / (globalTotals.totalB || 1), 1);
+      let tE = (rawE - uniqERange.min) / Math.max(uniqERange.max - uniqERange.min, 1e-9);
+      let tB = (rawB - uniqBRange.min) / Math.max(uniqBRange.max - uniqBRange.min, 1e-9);
+      tE = Math.max(0, Math.min(1, tE));
+      tB = Math.max(0, Math.min(1, tB));
+      // 以白色为底，线性混合 E(黄) 与 B(蓝)，必要时归一两者权重
+      let aE = tE, aB = tB;
+      const s = aE + aB;
+      if (s > 1) { aE /= s; aB /= s; }
+      const Ecol = { r: 244, g: 160, b: 0 };
+      const Bcol = { r: 66, g: 133, b: 244 };
+      const r = Math.round(255 * (1 - aE - aB) + Ecol.r * aE + Bcol.r * aB);
+      const g = Math.round(255 * (1 - aE - aB) + Ecol.g * aE + Bcol.g * aB);
+      const bb = Math.round(255 * (1 - aE - aB) + Ecol.b * aE + Bcol.b * aB);
+      return `rgba(${r},${g},${bb},0.9)`;
     }
     // E/B 渐变：黄色(=E) ↔ 蓝色(=B)，按 B 占比插值
     const eb = c.byType.B + c.byType.E;
@@ -346,12 +367,14 @@ export default function Matrix() {
                   <option value="dom">按 E/B 渐变着色</option>
                   <option value="uniqE">E 唯一覆盖率</option>
                   <option value="uniqB">B 唯一覆盖率</option>
+                  <option value="uniqOverlay">E/B 唯一覆盖叠加</option>
                   <option value="unique">结果唯一值个数</option>
                 </select>
               </label>
               <div style={{ fontSize: 12, color: '#555' }}>
                 - E/B 渐变：黄色代表 E 占比高，蓝色代表 B 占比高（全局对比度拉伸）<br />
                 - E/B 唯一覆盖率：该格向量内去重后的 E/B 种类数占全体 E/B 的比例（白→橙/白→蓝）<br />
+                - E/B 唯一覆盖叠加：将 E 与 B 的唯一覆盖率叠加上色（白底混合黄/蓝），可同时观察二者强弱<br />
                 - 若该格出现 A_0（全 0 序列），将以黑色边框标记<br />
                 - 结果唯一值个数：该单元格不同 ID 的数量，越多越深
               </div>
@@ -397,15 +420,10 @@ export default function Matrix() {
                   }
                   onClick={() => {
                     if (!encoded) return;
-                    const idsUniq = Array.from(new Set(cell.ids.filter(id => id && id !== 'UNMATCHED')));
-                    const seqs: number[][] = [];
-                    idsUniq.forEach(id => {
-                      const s = getSeqById(id);
-                      if (s) seqs.push(s);
-                    });
-                    if (seqs.length) {
-                      setVizTargets(seqs);
-                      setVizToken(t => t + 1);
+                    const idsUniq = Array.from(new Set(cell.ids.filter(id => id && id !== 'UNMATCHED'))) as string[];
+                    if (idsUniq.length) {
+                      setVizIds(idsUniq);
+                      setVizIdsToken(t => t + 1);
                     }
                   }}
                   style={{
@@ -435,7 +453,7 @@ export default function Matrix() {
           </div>
           <div style={{ minHeight: 0, overflow: 'auto' }}>
             <div style={{ minHeight: '100%' }}>
-              <App requestedBase={base} highlightTargets={vizTargets} highlightToken={vizToken} />
+              <App requestedBase={base} highlightTargets={vizTargets} highlightToken={vizToken} highlightIds={vizIds} highlightIdsToken={vizIdsToken} />
               {encodedErr && <p style={{ color: 'crimson', marginTop: 8 }}>编码数据加载失败：{encodedErr}</p>}
             </div>
           </div>

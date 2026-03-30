@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CyclesResponse } from './types'
+import type { CyclesResponse, EncodedData } from './types'
 import * as d3 from "d3"
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
@@ -48,7 +48,13 @@ function makePairsCircular(seq: number[]): [number, number][] {
   return pairs
 }
 
-export default function App(props: { requestedBase?: number; highlightTargets?: number[][]; highlightToken?: number } = {}) {
+export default function App(props: {
+  requestedBase?: number;
+  highlightTargets?: number[][];
+  highlightToken?: number;
+  highlightIds?: string[];
+  highlightIdsToken?: number;
+} = {}) {
   const [base, setBase] = useState<number>(props.requestedBase ?? 4)
   const [data, setData] = useState<CyclesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -56,6 +62,8 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
 
   const [active, setActive] = useState<Record<number, boolean>>({})
   const [order, setOrder] = useState<'original' | 'lenAsc' | 'lenDesc'>('original')
+  const [idLabels, setIdLabels] = useState<Record<number, string>>({})
+  const [hoverText, setHoverText] = useState<string>("")
 
   // const palette = usePalette()
   const colorCount = data?.sequences.length ?? 0
@@ -92,38 +100,110 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
     fetchData()
   }, [base, centered])
 
-  // rotation/repeat equality
-  const eqByRotationRepeat = (a: number[], b: number[]) => {
-    if (a.length === 0 || b.length === 0) return false
-    // ensure a is the longer or equal
-    let long = a, short = b
-    if (long.length < short.length) {
-      long = b; short = a
+  // rotation/repeat canonical signature (minimal period + minimal rotation)
+  const kmpPrefix = (arr: number[]) => {
+    const n = arr.length
+    const pi = new Array(n).fill(0)
+    let j = 0
+    for (let i = 1; i < n; i++) {
+      while (j > 0 && arr[i] !== arr[j]) j = pi[j - 1]
+      if (arr[i] === arr[j]) j++
+      pi[i] = j
     }
-    if (long.length % short.length !== 0) return false
-    for (let r = 0; r < short.length; r++) {
-      let ok = true
-      for (let i = 0; i < long.length; i++) {
-        if (long[i] !== short[(i + r) % short.length]) { ok = false; break }
-      }
-      if (ok) return true
+    return pi
+  }
+  const minimalPeriod = (arr: number[]) => {
+    if (arr.length === 0) return 0
+    const pi = kmpPrefix(arr)
+    const p = arr.length - pi[arr.length - 1]
+    return arr.length % p === 0 ? p : arr.length
+  }
+  const boothMinRotation = (arr: number[]) => {
+    if (arr.length === 0) return 0
+    const s = arr.concat(arr)
+    const n = arr.length
+    let i = 0, j = 1, k = 0
+    while (i < n && j < n && k < n) {
+      const a = s[i + k]
+      const b = s[j + k]
+      if (a === b) { k++; continue }
+      if (a > b) { i = i + k + 1; if (i <= j) i = j + 1 }
+      else { j = j + k + 1; if (j <= i) j = i + 1 }
+      k = 0
     }
-    return false
+    return Math.min(i, j)
+  }
+  const canonicalSignature = (arr: number[]) => {
+    if (arr.length === 0) return ''
+    const p = minimalPeriod(arr)
+    const baseArr = arr.slice(0, p)
+    const r = boothMinRotation(baseArr)
+    const canon = baseArr.slice(r).concat(baseArr.slice(0, r))
+    return canon.join(',')
   }
 
+  // legacy highlight by sequences (kept for compatibility)
   useEffect(() => {
     if (!data || !props.highlightTargets || !props.highlightTargets.length) return
     const targets = props.highlightTargets.map(t =>
       centered ? t.map(x => (x > base / 2 ? x - base : x)) : t
-    )
+    ).map(t => canonicalSignature(t))
+    const targetSet = new Set(targets)
     const on: Record<number, boolean> = {}
     data.sequences.forEach((seq, idx) => {
-      on[idx] = targets.some(t => eqByRotationRepeat(seq, t))
+      const raw = centered ? seq.map(x => (x < 0 ? x + base : x)) : seq
+      on[idx] = targetSet.has(canonicalSignature(raw))
     })
-    if (Object.values(on).some(Boolean)) {
-      setActive(on)
-    }
+    if (Object.values(on).some(Boolean)) setActive(on)
   }, [data, props.highlightToken, centered, base])
+
+  // highlight by IDs (fast path)
+  useEffect(() => {
+    if (!data || !props.highlightIds || props.highlightIds.length === 0) return
+    const idSet = new Set(props.highlightIds)
+    const on: Record<number, boolean> = {}
+    data.sequences.forEach((_, idx) => {
+      on[idx] = !!idLabels[idx] && idSet.has(idLabels[idx])
+    })
+    if (Object.values(on).some(Boolean)) setActive(on)
+  }, [data, props.highlightIdsToken, idLabels])
+
+  useEffect(() => {
+    const run = async () => {
+      if (!data) return
+      try {
+        const url = `/results/cycles_m${base}_encoded.json`
+        let enc: EncodedData | null = null
+        try {
+          const r = await fetch(url, { cache: 'no-store' })
+          if (r.ok && (r.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
+            enc = await r.json()
+          }
+        } catch {}
+        if (!enc) {
+          const api = `${API_BASE}/encoded?base=${base}&publish=true`
+          const r2 = await fetch(api)
+          if (r2.ok) {
+            const r3 = await fetch(url, { cache: 'no-store' })
+            if (r3.ok) enc = await r3.json()
+          }
+        }
+        if (!enc) return
+        const sigToId: Record<string, string> = {}
+        if (enc.A?.A_0) sigToId[canonicalSignature(enc.A.A_0.sequence)] = 'A_0'
+        Object.keys(enc.B || {}).forEach(k => { sigToId[canonicalSignature(enc.B[k].sequence)] = k })
+        Object.keys(enc.E || {}).forEach(k => { sigToId[canonicalSignature(enc.E[k].sequence)] = k })
+        const labels: Record<number, string> = {}
+        data.sequences.forEach((seq, idx) => {
+          const rawSeq = centered ? seq.map(x => (x < 0 ? x + base : x)) : seq
+          const sig = canonicalSignature(rawSeq)
+          labels[idx] = sigToId[sig] || ''
+        })
+        setIdLabels(labels)
+      } catch {}
+    }
+    run()
+  }, [data, base, centered])
 
   const sequenceList = useMemo(() => {
     if (!data) return [] as { seq: number[]; idx: number; len: number }[]
@@ -135,7 +215,7 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
 
   const grid = useMemo(() => {
     // Build cell -> list of labels of coordinates to show
-    const cells: Record<string, { label: string; color: string }[]> = {}
+    const cells: Record<string, { label: string; color: string; id?: string }[]> = {}
     if (!data) return { cells, size: base }
 
     data.sequences.forEach((seq, idx) => {
@@ -145,12 +225,12 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
       pairs.forEach(([x, y]) => {
         const key = `${x},${y}`
         if (!cells[key]) cells[key] = []
-        cells[key].push({ label: `(${x},${y})`, color })
+        cells[key].push({ label: `(${x},${y})`, color, id: idLabels[idx] })
       })
     })
 
     return { cells, size: data.base }
-  }, [data, active, palette, base])
+  }, [data, active, palette, base, idLabels])
 
   const totalSeqCount = data?.sequences.length ?? 0
   const selectedCount = useMemo(
@@ -269,6 +349,18 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
                     title={`颜色: ${color} | 长度: ${len}`}
                   >
                     <span style={{ display: 'inline-block', width: 12, height: 12, background: color, borderRadius: 3 }} />
+                    {idLabels[idx] && (
+                      <span style={{
+                        fontSize: 12,
+                        padding: '2px 6px',
+                        borderRadius: 8,
+                        border: '1px solid #999',
+                        color: '#333',
+                        background: '#fff'
+                      }}>
+                        {idLabels[idx]}
+                      </span>
+                    )}
                     <span style={{ flex: 1, marginLeft: 4 }}>[{seq.join(', ')}]</span>
                     {/* 新增的长度徽标 */}
                     <span style={{
@@ -290,11 +382,16 @@ export default function App(props: { requestedBase?: number; highlightTargets?: 
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: '80vh' }}>
             <h3 style={{ marginBottom: 8 }}>
               二维表格（{centered ? "中心化坐标" : "原始坐标"}）
-
+              <span style={{ marginLeft: 12, fontWeight: 500, color: '#444' }}>{hoverText}</span>
             </h3>
             <div style={{ flex: 1, minHeight: 0 }}>
-              {/* ✅ 把 centered 传给 Grid */}
-              <Grid base={data.base} cells={grid.cells} showLabels={showLabels} centered={centered} />
+              <Grid
+                base={data.base}
+                cells={grid.cells}
+                showLabels={showLabels}
+                centered={centered}
+                onHoverChange={setHoverText}
+              />
             </div>
           </div>
         </div>
@@ -307,20 +404,20 @@ function Grid({
   base,
   cells,
   showLabels,
-  centered, // ✅ 接收 centered
+  centered,
+  onHoverChange,
 }: {
   base: number;
-  cells: Record<string, { label: string; color: string }[]>;
+  cells: Record<string, { label: string; color: string; id?: string }[]>;
   showLabels: boolean;
-  centered: boolean; // ✅ 声明 centered
+  centered: boolean;
+  onHoverChange?: (text: string) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
 
-  const [tip, setTip] = useState<{ show: boolean; x: number; y: number; text: string }>({
-    show: false, x: 0, y: 0, text: "",
-  });
+  const [tip, setTip] = useState<{ show: boolean; x: number; y: number; text: string }>({ show: false, x: 0, y: 0, text: "" });
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -409,6 +506,7 @@ function Grid({
     const cx = e.clientX, cy = e.clientY;
     if (cx < gridRect.left || cx > gridRect.right || cy < gridRect.top || cy > gridRect.bottom) {
       if (tip.show) setTip((t) => ({ ...t, show: false }));
+      if (onHoverChange) onHoverChange("");
       return;
     }
 
@@ -420,13 +518,18 @@ function Grid({
     const dx = centered ? displayXs[col] : col;
     const dy = centered ? displayYs[rowFromTop] : (base - 1 - rowFromTop);
 
-    const tx = cx - wrapRect.left + 12;
-    const ty = cy - wrapRect.top + 12;
-    setTip({ show: true, x: tx, y: ty, text: `(${dx},${dy})` });
+    const key = centered ? `${dx},${dy}` : `${col},${base - 1 - rowFromTop}`;
+    const items = cells[key] || [];
+    const uniqIds = Array.from(new Set(items.map(it => it.id).filter(Boolean))) as string[];
+    const idPart = uniqIds.length ? uniqIds.join(' ') + ':' : '';
+    const text = `${idPart}(${dx},${dy})`;
+    if (onHoverChange) onHoverChange(text);
+    setTip({ show: true, x: 0, y: 0, text });
   };
 
   const onMouseLeave: React.MouseEventHandler<HTMLDivElement> = () => {
     if (tip.show) setTip((t) => ({ ...t, show: false }));
+    if (onHoverChange) onHoverChange("");
   };
 
   if (cellPx === 0) {
@@ -494,27 +597,7 @@ function Grid({
         })}
       </div>
 
-      {tip.show && (
-        <div
-          style={{
-            position: "absolute",
-            left: tip.x,
-            top: tip.y,
-            transform: "translate(-50%, -120%)",
-            background: "rgba(0,0,0,0.8)",
-            color: "white",
-            fontSize: 12,
-            padding: "4px 6px",
-            borderRadius: 6,
-            pointerEvents: "none",
-            zIndex: 10,
-            whiteSpace: "nowrap",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-          }}
-        >
-          {tip.text}
-        </div>
-      )}
+      {/* 移除跟随鼠标的浮动提示，改为由父组件在标题右侧展示 */}
     </div>
   );
 }
