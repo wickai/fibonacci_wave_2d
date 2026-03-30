@@ -25,3 +25,4 @@ dist-ssr
 
 # public/results/*.json
 public/results/*.json
+public/results/*.csv

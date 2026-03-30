@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from cycles_lib import enumerate_cycles, to_centered
 import os, json, shutil
 from encode_cycles import classify_and_encode
+from matrix_lib import build_matrix_be_add, build_matrix_be, build_matrix, write_matrix_csv
 
 app = FastAPI(title="Fibonacci–Lucas Mod Cycles API")
 
@@ -86,3 +87,69 @@ def get_encoded(
         with open(public_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     return data
+
+@app.get("/matrix_be_add")
+def get_matrix_be_add(
+    base: int = Query(ge=1, le=700),
+    publish: bool = Query(default=False, description="If true, also write CSV to mod-cycles-visualizer/public/results"),
+):
+    """
+    Build B×E add matrix (each cell is vector over E offsets), cache CSV under backend/,
+    and optionally publish a copy to the frontend public/results.
+    """
+    b_keys, e_keys, matrix, _ = build_matrix_be_add(base)
+    here = os.path.dirname(__file__)
+    csv_path = os.path.join(here, f"matrix_BxE_add_m{base}.csv")
+    write_matrix_csv(csv_path, b_keys, e_keys, matrix)
+    if publish:
+        repo_root = os.path.abspath(os.path.join(here, ".."))
+        public_path = os.path.join(repo_root, "mod-cycles-visualizer", "public", "results", f"matrix_BxE_add_m{base}.csv")
+        os.makedirs(os.path.dirname(public_path), exist_ok=True)
+        shutil.copyfile(csv_path, public_path)
+    # Return a small JSON summary
+    return {"base": base, "rows": len(b_keys), "cols": len(e_keys), "csv": csv_path, "published": publish}
+
+@app.get("/matrix_be")
+def get_matrix_be(
+    base: int = Query(ge=1, le=700),
+    op: str = Query(default="add", description="Operation: add or sub"),
+    publish: bool = Query(default=False, description="If true, also write CSV to mod-cycles-visualizer/public/results"),
+):
+    op = op.lower()
+    if op not in ("add", "sub"):
+        op = "add"
+    b_keys, e_keys, matrix, _ = build_matrix_be(base, op)
+    here = os.path.dirname(__file__)
+    csv_path = os.path.join(here, f"matrix_BxE_{op}_m{base}.csv")
+    write_matrix_csv(csv_path, b_keys, e_keys, matrix)
+    if publish:
+        repo_root = os.path.abspath(os.path.join(here, ".."))
+        public_path = os.path.join(repo_root, "mod-cycles-visualizer", "public", "results", f"matrix_BxE_{op}_m{base}.csv")
+        os.makedirs(os.path.dirname(public_path), exist_ok=True)
+        shutil.copyfile(csv_path, public_path)
+    return {"base": base, "op": op, "rows": len(b_keys), "cols": len(e_keys), "csv": csv_path, "published": publish}
+
+@app.get("/matrix")
+def get_matrix(
+    base: int = Query(ge=1, le=700),
+    left: str = Query(default="B", description="Left group: B or E"),
+    right: str = Query(default="E", description="Right group: B or E"),
+    op: str = Query(default="add", description="Operation: add or sub"),
+    publish: bool = Query(default=False, description="If true, also write CSV to mod-cycles-visualizer/public/results"),
+):
+    left = left.upper()
+    right = right.upper()
+    if left not in ("B", "E"): left = "B"
+    if right not in ("B", "E"): right = "E"
+    op = op.lower()
+    if op not in ("add", "sub"): op = "add"
+    L_keys, R_keys, matrix, _ = build_matrix(base, left, right, op)
+    here = os.path.dirname(__file__)
+    csv_path = os.path.join(here, f"matrix_{left}x{right}_{op}_m{base}.csv")
+    write_matrix_csv(csv_path, L_keys, R_keys, matrix)
+    if publish:
+        repo_root = os.path.abspath(os.path.join(here, ".."))
+        public_path = os.path.join(repo_root, "mod-cycles-visualizer", "public", "results", f"matrix_{left}x{right}_{op}_m{base}.csv")
+        os.makedirs(os.path.dirname(public_path), exist_ok=True)
+        shutil.copyfile(csv_path, public_path)
+    return {"base": base, "left": left, "right": right, "op": op, "rows": len(L_keys), "cols": len(R_keys), "csv": csv_path, "published": publish}
